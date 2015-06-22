@@ -1,3 +1,11 @@
+tracula on the CAMH DTI TGH subjects
+
+
+First, run freesurfer: 
+
+```sh 
 module load /opt/quarantine/freesurfer/5.3.0.2014_05_26/module
 module load SGE-extras/1.0
 for i in /archive/data/DT_sample/Schizophrenics/allT1/*.nii.gz; do echo SUBJECTS_DIR=$PWD/DTI_TGH/cases recon-all -s $(basename $i .nii.gz) -i $i -all -qcache; done > recon.jobs
+sge_submit_array recon.jobs -N recon-DTITGH
+```
