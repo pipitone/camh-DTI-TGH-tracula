@@ -1,0 +1,96 @@
+#!/bin/bash
+# Runs tracula on a single subject
+
+usage () {
+  echo "
+   Usage: 
+  
+    tracula <subjectsdir> <output/> <dwi.nii.gz>
+  
+   Arguments: 
+  
+      <subjectsdir/>      Path to SUBJECTS_DIR for recon-all outputs
+      <output/>           Path for tracula output 
+      <dwi.nii.gz>        Path to DWI image. Expects to find dwi.bvec and
+                          dwi.bval in the same folder. Also, uses the parent
+                          directory name as the subject ID (this should match
+                          what is found in the subjectsdir folder).  
+"
+}
+
+if [ -z "$3" ]; then
+  usage; exit;
+fi;
+
+function exit_if_exists {
+  if [ -e $1 ]; then 
+    echo "$2";
+    exit 1;
+  fi; 
+}
+
+subjectsdir=$1; shift;
+output=$1; shift;
+mkdir -p $output
+
+for dwi in $@; do 
+  dwidir=$(dirname $dwi)
+  subjectid=$(basename $dwidir )   # DWI parent folder name
+  stem=$(basename $dwi .nii.gz)
+  rc=$output/${stem}.tracrc
+  bvec=${dwidir}/${stem}.bvec
+  bval=${dwidir}/${stem}.bval
+
+  if [ ! -e $bvec -o ! -e $bval ]; then
+    echo "# $bvec or $bval not found. Skipping." 
+    continue;
+  fi
+
+  cat <<-EOF > $rc
+  setenv SUBJECTS_DIR ${subjectsdir}
+  set dtroot   = ${output}
+  set subjlist = ( ${subjectid} )
+  set dcmroot  = / 
+  set dcmlist  = ( ${dwi} )
+  set bvecfile = ( ${bvec} )
+  set bvalfile = ( ${bval} )
+EOF
+
+  tracdir=$output/${stem}
+  isrunning=${tracdir}/scripts/IsRunning.trac
+
+  rm -f $isrunning
+  
+  ####### 
+  ### Stage 1 : preparation 
+  ##
+  if [ ! -e ${tracdir}/scripts/trac-preproc.done ]; then 
+    echo trac-all -prep -c $rc
+    trac-all -prep -c $rc
+  fi 
+  exit_if_exists $isrunning "Stage 1 finished but claims still running."
+
+  ####### 
+  ### Stage 2: Bedpost
+  ##
+  if [ ! -e ${tracdir}/dmri.bedpostX/xfms/eye.mat ]; then 
+    echo trac-all -bedp -c $rc
+    trac-all -bedp -c $rc
+
+    # busy waiting
+    while [ ! -e ${tracdir}/dmri.bedpostX/xfms/eye.mat ]; do
+      sleep 15;
+      echo "$(date) : Waiting for bedpost to complete... "
+    done
+  fi 
+  exit_if_exists $isrunning "Stage 2 finished but claims still running."
+
+  ####### 
+  ### Stage 3: Paths
+  ##
+  if [ ! -e ${tracdir}/scripts/trac-paths.done ]; then 
+    echo trac-all -path -c $rc
+    trac-all -path -c $rc
+  fi 
+  exit_if_exists $isrunning "Stage 3 finished but claims still running."
+done;
